@@ -1,7 +1,7 @@
 N = 4
 FPS = 5
-width = 640
-height = 640
+width = 1000
+height = 720
 
 defaultBgColor = "#92877d"
 defaultCellColor = "#9e948a"  
