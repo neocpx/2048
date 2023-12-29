@@ -1,6 +1,8 @@
 import pygame
 import random
 import constants as consts
+from player import DQNAgent
+aiMode=False
 
 state=[[0,0,0,0],
        [0,0,0,0],
@@ -13,6 +15,7 @@ pygame.display.set_caption('2048')
 icon = pygame.image.load('./imgs/logo.svg')
 pygame.display.set_icon(icon)
 font = pygame.font.SysFont('./fonts/openSans.ttf', 60)
+sfont = pygame.font.SysFont('./fonts/openSans.ttf', 40)
 
 
 def setNumber(n=1):
@@ -29,19 +32,24 @@ def getScore():
 
 
 def display(score):
-    instructions = 'Use arrow keys (or WASD) to move tiles. Combine matching tiles to reach 2048!. use TAB for AI mode and N for new game'
+    instructions = (
+    "Move tiles using arrow keys (or WASD). Combine matching tiles to reach 2048!"
+    " Press TAB for AI mode and N for a new game."
+)
+
     screen.fill(consts.defaultBgColor)
 
     logo_text = font.render(f'2048', True, (0, 0, 0))
-    logo_rect = logo_text.get_rect(topright=(consts.height+(consts.width - consts.height - 20), 20))
+    logo_rect = logo_text.get_rect(topleft=(consts.height, 20))
     screen.blit(logo_text, logo_rect)
 
     # Render score text
     score_text = font.render(f'Score: {score}', True, (0, 0, 0))
-    score_rect = score_text.get_rect(topright=(consts.width - 20, 65))
+    score_rect = score_text.get_rect(topleft=(consts.height, 60))
     screen.blit(score_text, score_rect)
 
-    instructions_width = consts.width - consts.height - 40
+    # Render instructions
+    instructions_width = consts.width - consts.height + 120 
     words = instructions.split(' ')
     lines = ['']
     current_line = 0
@@ -57,8 +65,8 @@ def display(score):
             current_line += 1
 
     for i, line in enumerate(lines):
-        text_surface = font.render(line, True, (0, 0, 0))
-        text_rect = text_surface.get_rect(topleft=(consts.height + 20, consts.height + 5 + 20))
+        text_surface = sfont.render(line, True, (0, 0, 0))
+        text_rect = text_surface.get_rect(topleft=(consts.height + 20 , 140 + i * 35))  # Adjust the y-coordinate
         screen.blit(text_surface, text_rect)
 
     # Render game tiles
@@ -79,26 +87,36 @@ def display(score):
             text = font.render(f'{state[r][c]}', True, consts.cellColor[state[r][c]])
             num_rect = text.get_rect(center=(rect_x + rect_w / 2, rect_y + rect_h / 2))
             screen.blit(text, num_rect)
-       
 
     pygame.display.flip()
 
 
+
 def getEvent():
-       while True:
-             for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                           return 'quit'
-                    elif event.type == pygame.KEYDOWN:
-                           keys = pygame.key.get_pressed()
-                           if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-                                  return 'left'
-                           elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-                                  return 'right'
-                           elif keys[pygame.K_UP] or keys[pygame.K_w]:
-                                  return 'up'
-                           elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
-                                  return 'down' 
+    global aiMode
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return 'quit'
+            elif event.type == pygame.KEYDOWN:
+                keys = pygame.key.get_pressed()
+                if aiMode and keys[pygame.K_TAB]:
+                    aiMode = False  # Switch back to manual mode
+                    return 'switchToManual'
+                elif keys[pygame.K_LEFT] or keys[pygame.K_a]:
+                    return 'left'
+                elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+                    return 'right'
+                elif keys[pygame.K_UP] or keys[pygame.K_w]:
+                    return 'up'
+                elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
+                    return 'down'
+                elif keys[pygame.K_n]:
+                    return 'newGame'
+                elif keys[pygame.K_TAB]:
+                    aiMode = True  # Switch to AI mode
+                    return 'switchToAI'
+                           
 
 def compact_and_merge(line):
     """Compact the line by removing zeros and merge adjacent equal tiles."""
@@ -119,7 +137,7 @@ def compact_and_merge(line):
     merged_line += [0] * (len(line) - len(merged_line))
 
     return merged_line
-
+     
 
 def move(command):
     global state
@@ -137,23 +155,41 @@ def move(command):
             column = compact_and_merge([newState[row][idx] for row in range(len(newState))][::-1])[::-1]
             for row in range(len(newState)):
                 newState[row][idx] = column[row]
+        elif command == 'newGame':
+             state=[[0]*4 for _ in range(4)]
+             setNumber(2)
+             return True
+       
     state = newState
+    return False
 
 def play():
-   score=0 
-   setNumber(2)
-   while True:
-          display(score)
-          print(f'\rscore: {score}',end=' ', flush=True)
-          pygame.display.flip()
-          event = getEvent()
-          if event == 'quit':
-                 break
-          move(event)
-          score+=getScore()
-          if not setNumber():
-                 display(score)
-                 break
+    global aiMode
+    commands={0:'left',1:'up',2:'right',3:'down'}
+    agent = DQNAgent('./ai/models/policy_net.pth')
+    score = 0
+    setNumber(2)
+    while True:
+        display(score)
+        print(f'\rscore: {score}', end=' ', flush=True)
+        pygame.display.flip()
+        if aiMode:
+            # AI mode: use DQNAgent to make decisions
+            best_move = agent.select_best_move(state)
+            pygame.time.wait(500)  # Delay for better visual experience
+            move(commands[best_move])
+            score += getScore()
+            if not setNumber():
+                    display(score)
+                    break
+            continue
+        event = getEvent()
+        if event == 'quit':
+                break
+        move(event)
+        score += getScore()
+        if not setNumber():
+              display(score)
+              break
 
-              
 play()
